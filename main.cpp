@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <WiFi.h>
 
 
 // Definición de Pines
@@ -11,13 +12,17 @@
 #define bombaDeAgua 6
 #define sensorHumedad 7
 #define sensorLluvia 4
+#define SSID "Mahiro <3"
+#define PASSWORD "hola1234"
 
 
 #define min10 600000
 #define estaSeco 3000
 #define estaHumedo 1200
+#define seg30 30000
 
 
+volatile bool WiFiIniciadoYNTP = false;
 // Variables de Control
 volatile bool flagTimer = false;
 uint8_t estadoMovimiento = 0;
@@ -26,10 +31,48 @@ uint8_t estadoLluvia = 0;
 volatile uint16_t contadorMovimiento = 0;
 volatile uint32_t contadorRegar = 0;
 volatile uint16_t contadorRegar2 = 0;
+volatile uint16_t contadorWiFi = 0;
+volatile uint16_t contadorNTP = 0;
 bool calibracionCompleta = false;
 
 
 hw_timer_t *My_timer = NULL;
+
+
+struct tm tiempoReal;
+
+
+bool actualizarTiempoReal(){
+  return getLocalTime(&tiempoReal);
+}
+
+
+void iniciarWifiYNTP(){
+  if(WiFiIniciadoYNTP) return;
+  static bool iniciado = true;
+  if(iniciado){
+    WiFi.begin(SSID,PASSWORD);
+    iniciado = false;
+  }
+  if(contadorWiFi <= 30000){
+    contadorWiFi++;
+    return;
+  }
+  if(WiFi.status() == WL_CONNECTED){
+    configTime(-10800, 0, "pool.ntp.org");
+    if(contadorNTP <= 5000){
+      contadorNTP++;
+    }
+    else{
+    actualizarTiempoReal();
+    WiFiIniciadoYNTP = true;
+    }
+  }
+  else{
+    iniciado = true;
+    contadorWiFi = 0;
+  }
+}
 
 
 // Rutina de Interrupción (ISR)
@@ -97,8 +140,6 @@ void detectarMovimiento(){
             estadoMovimiento = 0;
           }
           break;
-
-
     }
 }
 
@@ -171,3 +212,6 @@ void loop() {
     }
   }
 }
+
+
+
