@@ -1,6 +1,8 @@
 #include <Arduino.h>
 
 
+
+
 // Definición de Pines
 #define sensorHallFinal 14
 #define sensorHallInicio 13
@@ -13,9 +15,13 @@
 #define sensorLluvia 4
 
 
+
+
 #define min10 600000
 #define estaSeco 3000
 #define estaHumedo 1200
+
+
 
 
 // Variables de Control
@@ -31,7 +37,19 @@ bool calibracionCompleta = false;
 
 
 
+
+
+
+
 hw_timer_t *My_timer = NULL;
+
+
+
+
+
+
+
+
 
 
 
@@ -44,6 +62,8 @@ hw_timer_t *My_timer = NULL;
 void IRAM_ATTR onTimer() {
   flagTimer = 1;
 }
+
+
 
 
 void regar(){
@@ -77,6 +97,8 @@ void regar(){
 }
 
 
+
+
 void calibrarMotorDC() {
   if (calibracionCompleta) return;
   if (digitalRead(sensorHallFinal) == LOW) {
@@ -86,6 +108,8 @@ void calibrarMotorDC() {
     calibracionCompleta = true;
   }
 }
+
+
 
 
 void detectarMovimiento(){
@@ -109,10 +133,18 @@ void detectarMovimiento(){
 
 
 
+
+
+
+
     }
 
 
+
+
 }
+
+
 
 
 void detectarLluvia(){
@@ -144,8 +176,8 @@ void detectarLluvia(){
   }
 }
 void setup() {
-  pinMode(sensorHallFinal, INPUT);
-  pinMode(sensorHallInicio, INPUT);
+  pinMode(sensorHallFinal, INPUT_PULLUPP);
+  pinMode(sensorHallInicio, INPUT_PULLUP);
   pinMode(motorDCsentidoHorario, OUTPUT);
   pinMode(motorDCsentidoAntiHorario, OUTPUT);
   pinMode(sensorMovimiento, INPUT);
@@ -156,12 +188,22 @@ void setup() {
 
 
 
+
+
+
+
   // ledcAttach(pin, frecuencia, resolución)
   ledcAttach(pinBuzzer, 2000, 8);
 
 
+
+
   digitalWrite(motorDCsentidoHorario, LOW);
   digitalWrite(motorDCsentidoAntiHorario, LOW);
+
+
+
+
 
 
 
@@ -178,9 +220,21 @@ void setup() {
 
 
 
+
+
+
+
+
+
+
+
 void loop() {
   if (flagTimer) {
     flagTimer = false;
+
+
+
+
 
 
 
@@ -193,6 +247,16 @@ void loop() {
     }
   }
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
