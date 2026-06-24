@@ -7,7 +7,7 @@
 #define estaSeco 2800
 #define estaHumedo 1200
 void tareaRegar(void *pvParameters);
-
+void tareaCalibrarMotor(void *pvParameters);
 
 void setup() {
   pinMode(sensorHumedad,INPUT);
@@ -20,6 +20,14 @@ void setup() {
     1,
     NULL
   );
+  xTaskCreate(
+    tareaCalibrarMotor,
+    "CalibrarMotorDC",
+    2048,
+    NULL,
+    1,
+    NULL
+  )
 }
 
 
@@ -29,6 +37,18 @@ void loop() {
 
 }
 
+void tareaCalibrar(void *pvParameters){
+  while(1){
+    if (digitalRead(sensorHallFinal) == LOW) {
+      digitalWrite(motorDCsentidoAntiHorario, HIGH);
+    }
+    else {
+      digitalWrite(motorDCsentidoAntiHorario, LOW);
+      vTaskDelete(NULL);
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
 
 void tareaRegar(void *pvParameters){
   volatile static uint8_t estadoRegar = 0;
@@ -52,8 +72,6 @@ void tareaRegar(void *pvParameters){
           estadoRegar = 0;
         }
       break;
-
-
     }
   }
 }
