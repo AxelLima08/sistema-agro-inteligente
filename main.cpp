@@ -1,6 +1,6 @@
 #include <Arduino.h>
 
-#define min10 3000
+#define min10 600000
 #define seg10 10000
 #define bombaDeAgua 6
 #define sensorHumedad 7
@@ -12,9 +12,11 @@
 #define estaHumedo 1200
 #define sensorMovimiento 5
 #define sensorLluvia 4
+#define pinBuzzer 15
 
 void tareaRegar(void *pvParameters);
 void detectarLluvia(void *pvParameters);
+void detectarMovimiento(void *pvParameters);
 
 void setup() {
   pinMode(sensorHallCerrado, INPUT_PULLUP);
@@ -36,6 +38,14 @@ void setup() {
   xTaskCreate(
     detectarLluvia,
     "detectarLluvia",
+    2048,
+    NULL,
+    1,
+    NULL
+  );
+    xTaskCreate(
+    detectarMovimiento,
+    "detectarMovimiento",
     2048,
     NULL,
     1,
@@ -78,6 +88,17 @@ void tareaRegar(void *pvParameters){
 
 void detectarLluvia(void *pvParameters){
   uint8_t estadoLluvia = 0;
+  bool calibracionCompleta = false;
+  while(!calibracionCompleta){
+  if (digitalRead(sensorHallCerrado) == LOW){
+  digitalWrite(motorDCCerrar, HIGH);
+  }
+  else {
+    digitalWrite(motorDCCerrar, LOW);
+    calibracionCompleta = true;
+  }
+  vTaskDelay(pdMS_TO_TICKS(50));
+  }
   while(1){
   switch(estadoLluvia){
     case 0:
@@ -105,6 +126,26 @@ void detectarLluvia(void *pvParameters){
     }
     break;
   }
-  vTaskDelay(pdMS_TO_TICKS(10));
+  vTaskDelay(pdMS_TO_TICKS(200));
+  }
 }
+
+void detectarMovimiento(void *pvParameters){
+  uint8_t estadoMovimiento = 0;
+  while(1){
+    switch (estadoMovimiento) {
+        case 0:
+          if (digitalRead(sensorMovimiento)) {
+            estadoMovimiento = 1;
+            ledcWrite(pinBuzzer, 128); // Ahora se usa el pin directamente, no el canal
+          }
+          vTaskDelay(pdMS_TO_TICKS(200));
+          break;
+        case 1:
+          vTaskDelay(pdMS_TO_TICKS(2000));
+            ledcWrite(pinBuzzer, 0);
+            estadoMovimiento = 0;
+          break;
+    }
+  }
 }
