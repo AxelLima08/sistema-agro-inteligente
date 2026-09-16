@@ -1,20 +1,36 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
+#define ciclosTimeoutRegar  15
+#define ciclosTimeoutLluvia 10
 
 #define min10 600000
 #define seg10 10000
-#define bombaDeAgua 6
-#define sensorHumedad 7
-#define motorDCAbrir 16
-#define motorDCCerrar 17
+// tiempos en millis
+
+// Actuadores "Motores"
+//-------------------------------
 #define sensorHallCerrado 14
 #define sensorHallAbierto 13
+//-------------------------------
+
+// Sensores "Principales"
+//-------------------------------
+#define sensorHumedad 7
+#define sensorLluvia 4
+#define sensorMovimiento 5
+//-------------------------------
+
+#define pinBuzzer 15
+#define bombaDeAgua 6
+
+#define motorDCAbrir 16
+#define motorDCCerrar 17
+
 #define estaSeco 2800
 #define estaHumedo 1200
-#define sensorMovimiento 5
-#define sensorLluvia 4
-#define pinBuzzer 15
+
+
 
 
 #define SSID "SSID"
@@ -73,15 +89,21 @@ void setup() {
 
 void loop() {
  // put your main code here, to run repeatedly:
-
+ 
 
 
 
 }
 
 
+
 void tareaRegar(void *pvParameters){
  volatile static uint8_t estadoRegar = 0;
+ /*
+ uint8_t banderaRegar = min10 ;               //bandera de tiempo de funcion regar   
+ */
+ uint8_t contadorTimeoutRegar = 0 ;                     //bandera de ciclos
+
  while(true){
    switch(estadoRegar){
      case 0:
@@ -96,13 +118,22 @@ void tareaRegar(void *pvParameters){
 
 
 
-
      case 1:
        vTaskDelay(pdMS_TO_TICKS(seg10));
        if(analogRead(sensorHumedad) < estaHumedo){
          digitalWrite(bombaDeAgua, LOW);
          estadoRegar = 0;
-       }
+         contadorTimeoutRegar++;                              //aumento de ciclo
+         }          
+          else if(contadorTimeoutRegar == ciclosTimeoutRegar){     //si supera la cantidad ciclos pasa al siguiente estado  
+            estadoRegar = 2;                                  //siguiente estado 
+          }
+         
+     break;
+
+     case 2: 
+      vTaskSuspend(NULL);                //se mantiene en esta tarea hasta que termine (NO HACE NADA)
+
      break;
    }
  }
@@ -110,7 +141,11 @@ void tareaRegar(void *pvParameters){
 
 
 void detectarLluvia(void *pvParameters){
+
+ uint8_t contadorDeCiclosLluvia = 0 ;       //bandera de ciclos para cuando halla lluvia lluvia 
+
  uint8_t estadoLluvia = 0;
+
  bool calibracionCompleta = false;
  while(!calibracionCompleta){
  if (digitalRead(sensorHallCerrado) == LOW){
@@ -128,25 +163,60 @@ void detectarLluvia(void *pvParameters){
    if(analogRead(sensorLluvia) < 500){
      digitalWrite(motorDCAbrir, HIGH);
      estadoLluvia = 1;
+
+     contadorDeCiclosLluvia++;
+     else if(ciclosTimeoutLluvia == 10){
+      estadoLluvia = 4;
+     }
    }
+
+
+
    break;
    case 1:
    if(digitalRead(sensorHallAbierto) == HIGH){
      digitalWrite(motorDCAbrir, LOW);
      estadoLluvia = 2;
+     contadorDeCiclosLluvia++;
+     else if(contadorDeCiclosLluvia == 10){
+      estadoLluvia = 4;
+     }
+
+    }
+
+
    }
    break;
    case 2:
    if(analogRead(sensorLluvia) > 2000){
      digitalWrite(motorDCCerrar, HIGH);
      estadoLluvia = 3;
+
+     contadorDeCiclosLluvia++;
+     else if(contadorDeCiclosLluvia == 10){
+      estadoLluvia = 4;
+     }
    }
+
+
+
    break;
    case 3:
    if(digitalRead(sensorHallCerrado) == HIGH){
      digitalWrite(motorDCCerrar, LOW);
      estadoLluvia = 0;
+
+     contadorDeCiclosLluvia++;
+     else if(contadorDeCiclosLluvia == 10){
+      estadoLluvia = 4;
+     }
    }
+
+   break;
+
+   case 4:
+   vTaskSuspend(NULL);
+   //Serial.printl("Reivisar el Proceso en cuestion") se queda pausado el codigo esperando reaunadar luego de una repeticion continua
    break;
  }
  vTaskDelay(pdMS_TO_TICKS(200));
