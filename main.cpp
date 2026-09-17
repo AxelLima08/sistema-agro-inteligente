@@ -1,3 +1,9 @@
+// En la estructura SensoresEvent el atributo tipo usa la siguiente nomenclatura
+// 0 = El tipo es del sensor de movimiento
+// 1 = El tipo es del sensor de humedad para regar
+// 2 = sensor de lluvia o estado del clima 
+
+
 #include <Arduino.h>
 #include <WiFi.h>
 
@@ -31,17 +37,19 @@
 #define estaHumedo 1200
 
 
-
-
 #define SSID "SSID"
 #define PASSWORD "PASSWORD"
 
 
-
-
 struct tm tiempoReal;
 
+struct SensorEvent {
+  uint8_t tipo;
+  bool estado;
+  struct tm time;
+};
 
+QueueHandle_t colaEventos;
 
 
 void tareaRegar(void *pvParameters);
@@ -50,220 +58,248 @@ void detectarMovimiento(void *pvParameters);
 
 
 void setup() {
- pinMode(sensorHallCerrado, INPUT_PULLUP);
- pinMode(sensorHallAbierto, INPUT_PULLUP);
- pinMode(motorDCCerrar, OUTPUT);
- pinMode(motorDCAbrir, OUTPUT);
- pinMode(sensorMovimiento, INPUT);
- pinMode(sensorHumedad, INPUT);
- pinMode(bombaDeAgua, OUTPUT);
- pinMode(sensorLluvia, INPUT);
- xTaskCreate(
-   tareaRegar,
-   "Regar",
-   2048,
-   NULL,
-   1,
-   NULL
- );
- xTaskCreate(
-   detectarLluvia,
-   "detectarLluvia",
-   2048,
-   NULL,
-   1,
-   NULL
- );
-   xTaskCreate(
-   detectarMovimiento,
-   "detectarMovimiento",
-   2048,
-   NULL,
-   1,
-   NULL
- );
+  pinMode(sensorHallCerrado, INPUT_PULLUP);
+  pinMode(sensorHallAbierto, INPUT_PULLUP);
+  pinMode(motorDCCerrar, OUTPUT);
+  pinMode(motorDCAbrir, OUTPUT);
+  pinMode(sensorMovimiento, INPUT);
+  pinMode(sensorHumedad, INPUT);
+  pinMode(bombaDeAgua, OUTPUT);
+  pinMode(sensorLluvia, INPUT);
+
+  colaEventos = xQueueCreate(
+    5,
+    sizeof(SensorEvent)
+  );
+
+  xTaskCreate(
+    tareaRegar,
+    "Regar",
+    2048,
+    NULL,
+    1,
+    NULL
+  );
+
+  xTaskCreate(
+    detectarLluvia,
+    "detectarLluvia",
+    2048,
+    NULL,
+    1,
+    NULL
+  );
+
+  xTaskCreate(
+    detectarMovimiento,
+    "detectarMovimiento",
+    2048,
+    NULL,
+    1,
+    NULL
+  );
 }
-
-
 
 
 void loop() {
- // put your main code here, to run repeatedly:
- 
-
-
-
 }
 
 
+void tareaRegar(void *pvParameters) {
+  volatile static uint8_t estadoRegar = 0;
 
-void tareaRegar(void *pvParameters){
- volatile static uint8_t estadoRegar = 0;
- /*
- uint8_t banderaRegar = min10 ;               //bandera de tiempo de funcion regar   
- */
- uint8_t contadorTimeoutRegar = 0 ;                     //bandera de ciclos
+  /*
+  uint8_t banderaRegar = min10 ;               //bandera de tiempo de funcion regar   
+  */
 
- while(true){
-   switch(estadoRegar){
-     case 0:
-       if(analogRead(sensorHumedad)>estaSeco){
-         digitalWrite(bombaDeAgua, HIGH);
-         estadoRegar = 1;
-       }
-       else{
-         vTaskDelay(pdMS_TO_TICKS(min10));
-       }
-     break;
+  uint8_t contadorTimeoutRegar = 0;                     //bandera de ciclos
 
+  SensorEvent evento;
 
+  while (true) {
+    switch (estadoRegar) {
+      case 0:
+        if (analogRead(sensorHumedad) > estaSeco) {
+          digitalWrite(bombaDeAgua, HIGH);
 
-     case 1:
-       vTaskDelay(pdMS_TO_TICKS(seg10));
-       if(analogRead(sensorHumedad) < estaHumedo){
-         digitalWrite(bombaDeAgua, LOW);
-         estadoRegar = 0;
-         contadorTimeoutRegar++;                              //aumento de ciclo
-         }          
-          else if(contadorTimeoutRegar == ciclosTimeoutRegar){     //si supera la cantidad ciclos pasa al siguiente estado  
-            estadoRegar = 2;                                  //siguiente estado 
-          }
-         
-     break;
+          // Preparar estructura para cargarlo en el Queue
+          // false esta seco
+          evento.tipo = 1;
+          evento.estado = false;
+          getLocalTime(&evento.time);
+          xQueueSend(colaEventos, &evento, 0);
 
-     case 2: 
-      vTaskSuspend(NULL);                //se mantiene en esta tarea hasta que termine (NO HACE NADA)
+          // Cambia de Estado
+          estadoRegar = 1;
+        }
+        else {
+          vTaskDelay(pdMS_TO_TICKS(min10));
+        }
+        break;
 
-     break;
-   }
- }
+      case 1:
+        vTaskDelay(pdMS_TO_TICKS(seg10));
+
+        if (analogRead(sensorHumedad) < estaHumedo) {
+          digitalWrite(bombaDeAgua, LOW);
+
+          // Preparar estructura para cargarlo en el Queue
+          // true esta humedo
+          evento.tipo = 1;
+          evento.estado = true;
+          getLocalTime(&evento.time);
+          xQueueSend(colaEventos, &evento, 0);
+
+          estadoRegar = 0;
+          contadorTimeoutRegar++;                              //aumento de ciclo
+        }
+        else if (contadorTimeoutRegar == ciclosTimeoutRegar) {     //si supera la cantidad ciclos pasa al siguiente estado  
+          estadoRegar = 2;                                  //siguiente estado 
+        }
+
+        break;
+
+      case 2:
+        vTaskSuspend(NULL);                //se mantiene en esta tarea hasta que termine (NO HACE NADA)
+
+        break;
+    }
+    break;
+  }
 }
 
 
-void detectarLluvia(void *pvParameters){
+void detectarLluvia(void *pvParameters) {
 
- uint8_t contadorDeCiclosLluvia = 0 ;       //bandera de ciclos para cuando halla lluvia lluvia 
+  uint8_t contadorDeCiclosLluvia = 0;       //bandera de ciclos para cuando halla lluvia lluvia 
 
- uint8_t estadoLluvia = 0;
+  uint8_t estadoLluvia = 0;
 
- bool calibracionCompleta = false;
- while(!calibracionCompleta){
- if (digitalRead(sensorHallCerrado) == LOW){
- digitalWrite(motorDCCerrar, HIGH);
- }
- else {
-   digitalWrite(motorDCCerrar, LOW);
-   calibracionCompleta = true;
- }
- vTaskDelay(pdMS_TO_TICKS(50));
- }
- while(1){
- switch(estadoLluvia){
-   case 0:
-   if(analogRead(sensorLluvia) < 500){
-     digitalWrite(motorDCAbrir, HIGH);
-     estadoLluvia = 1;
+  bool calibracionCompleta = false;
 
-     contadorDeCiclosLluvia++;
-     else if(ciclosTimeoutLluvia == 10){
-      estadoLluvia = 4;
-     }
-   }
-
-
-
-   break;
-   case 1:
-   if(digitalRead(sensorHallAbierto) == HIGH){
-     digitalWrite(motorDCAbrir, LOW);
-     estadoLluvia = 2;
-     contadorDeCiclosLluvia++;
-     else if(contadorDeCiclosLluvia == 10){
-      estadoLluvia = 4;
-     }
-
+  while (!calibracionCompleta) {
+    if (digitalRead(sensorHallCerrado) == LOW) {
+      digitalWrite(motorDCCerrar, HIGH);
+    }
+    else {
+      digitalWrite(motorDCCerrar, LOW);
+      calibracionCompleta = true;
     }
 
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
 
-   }
-   break;
-   case 2:
-   if(analogRead(sensorLluvia) > 2000){
-     digitalWrite(motorDCCerrar, HIGH);
-     estadoLluvia = 3;
+  while (1) {
+    switch (estadoLluvia) {
+      case 0:
+        if (analogRead(sensorLluvia) < 500) {
+          digitalWrite(motorDCAbrir, HIGH);
+          estadoLluvia = 1;
 
-     contadorDeCiclosLluvia++;
-     else if(contadorDeCiclosLluvia == 10){
-      estadoLluvia = 4;
-     }
-   }
+          contadorDeCiclosLluvia++;
 
+          else if (ciclosTimeoutLluvia == 10) {
+            estadoLluvia = 4;
+          }
+        }
 
+        break;
 
-   break;
-   case 3:
-   if(digitalRead(sensorHallCerrado) == HIGH){
-     digitalWrite(motorDCCerrar, LOW);
-     estadoLluvia = 0;
+      case 1:
+        if (digitalRead(sensorHallAbierto) == HIGH) {
+          digitalWrite(motorDCAbrir, LOW);
+          estadoLluvia = 2;
+          contadorDeCiclosLluvia++;
 
-     contadorDeCiclosLluvia++;
-     else if(contadorDeCiclosLluvia == 10){
-      estadoLluvia = 4;
-     }
-   }
+          else if (contadorDeCiclosLluvia == 10) {
+            estadoLluvia = 4;
+          }
+        }
 
-   break;
+        }
+        break;
 
-   case 4:
-   vTaskSuspend(NULL);
-   //Serial.printl("Reivisar el Proceso en cuestion") se queda pausado el codigo esperando reaunadar luego de una repeticion continua
-   break;
- }
- vTaskDelay(pdMS_TO_TICKS(200));
- }
+      case 2:
+        if (analogRead(sensorLluvia) > 2000) {
+          digitalWrite(motorDCCerrar, HIGH);
+          estadoLluvia = 3;
+
+          contadorDeCiclosLluvia++;
+
+          else if (contadorDeCiclosLluvia == 10) {
+            estadoLluvia = 4;
+          }
+        }
+
+        break;
+
+      case 3:
+        if (digitalRead(sensorHallCerrado) == HIGH) {
+          digitalWrite(motorDCCerrar, LOW);
+          estadoLluvia = 0;
+
+          contadorDeCiclosLluvia++;
+
+          else if (contadorDeCiclosLluvia == 10) {
+            estadoLluvia = 4;
+          }
+        }
+
+        break;
+
+      case 4:
+        vTaskSuspend(NULL);
+        //Serial.printl("Reivisar el Proceso en cuestion") se queda pausado el codigo esperando reaunadar luego de una repeticion continua
+        break;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
 }
 
 
-void detectarMovimiento(void *pvParameters){
- uint8_t estadoMovimiento = 0;
- while(1){
-   switch (estadoMovimiento) {
-       case 0:
-         if (digitalRead(sensorMovimiento)) {
-           estadoMovimiento = 1;
-           ledcWrite(pinBuzzer, 128); // Ahora se usa el pin directamente, no el canal
-         }
-         vTaskDelay(pdMS_TO_TICKS(200));
-         break;
-       case 1:
-         vTaskDelay(pdMS_TO_TICKS(2000));
-           ledcWrite(pinBuzzer, 0);
-           estadoMovimiento = 0;
-         break;
-   }
- }
+void detectarMovimiento(void *pvParameters) {
+  uint8_t estadoMovimiento = 0;
+
+  while (1) {
+    switch (estadoMovimiento) {
+      case 0:
+        if (digitalRead(sensorMovimiento)) {
+          estadoMovimiento = 1;
+          ledcWrite(pinBuzzer, 128); // Ahora se usa el pin directamente, no el canal
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(200));
+        break;
+
+      case 1:
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        ledcWrite(pinBuzzer, 0);
+        estadoMovimiento = 0;
+        break;
+    }
+  }
 }
 
 
-void estadoWifiYNTP(void *pvParameters){
- while(1){
- WiFi.begin(SSID, PASSWORD);
- vTaskDelay(pdMS_TO_TICKS(30000));
+void estadoWifiYNTP(void *pvParameters) {
+  while (1) {
+    WiFi.begin(SSID, PASSWORD);
+    vTaskDelay(pdMS_TO_TICKS(30000));
 
+    if (WiFi.status() == WL_CONNECTED) {
+      configTime(-10800, 0, "pool.ntp.org");
 
- if(WiFi.status() == WL_CONNECTED){
-   configTime(-10800, 0, "pool.ntp.org");
-   while (!getLocalTime(&tiempoReal)) {
-     vTaskDelay(pdMS_TO_TICKS(1000));
-   }
+      while (!getLocalTime(&tiempoReal)) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+      }
 
+      while (WiFi.status() == WL_CONNECTED) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+      }
+    }
 
-   while(WiFi.status() == WL_CONNECTED){
-     vTaskDelay(pdMS_TO_TICKS(5000));
-   }
- }
-   WiFi.disconnect();
-   vTaskDelay(pdMS_TO_TICKS(300000));
- }
+    WiFi.disconnect();
+    vTaskDelay(pdMS_TO_TICKS(300000));
+  }
 }
-
