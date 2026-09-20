@@ -1,42 +1,51 @@
-// En la estructura SensoresEvent el atributo tipo usa la siguiente nomenclatura
-// 0 = El tipo es del sensor de movimiento
-// 1 = El tipo es del sensor de humedad para regar
-// 2 = sensor de lluvia o estado del clima 
-
-
 #include <Arduino.h>
 #include <WiFi.h>
 
 #define ciclosTimeoutRegar  15
 #define ciclosTimeoutLluvia 10
 
+// Constantes de tiempo en MS
+//-------------------------------
 #define min10 600000
 #define seg10 10000
-// tiempos en millis
+//-------------------------------
 
-// Actuadores "Motores"
+// Pin de sensores "Final de carrera" para el motor DC
 //-------------------------------
 #define sensorHallCerrado 14
 #define sensorHallAbierto 13
 //-------------------------------
 
-// Sensores "Principales"
+// Pin de sensores "Principales"
 //-------------------------------
 #define sensorHumedad 7
 #define sensorLluvia 4
 #define sensorMovimiento 5
 //-------------------------------
 
+// Pin de actuadores
+//-------------------------------
 #define pinBuzzer 15
 #define bombaDeAgua 6
 
+// Pin para el motor DC
+//-------------------------------
 #define motorDCAbrir 16
 #define motorDCCerrar 17
+//-------------------------------
 
+//Constantes de humedad para el sensor de humedad
+//-------------------------------
 #define estaSeco 2800
 #define estaHumedo 1200
+//-------------------------------
 
-
+// En la estructura SensoresEvent el atributo tipo usa la siguiente nomenclatura
+//-------------------------------
+#define tipoSensorMovimiento 0
+#define tipoSensorHumedad 1
+#define tipoSensorLluvia 2
+//-------------------------------
 #define SSID "SSID"
 #define PASSWORD "PASSWORD"
 
@@ -66,6 +75,7 @@ void setup() {
   pinMode(sensorHumedad, INPUT);
   pinMode(bombaDeAgua, OUTPUT);
   pinMode(sensorLluvia, INPUT);
+  // Serial.begin(115200);
 
   colaEventos = xQueueCreate(
     5,
@@ -112,6 +122,8 @@ void tareaRegar(void *pvParameters) {
   uint8_t banderaRegar = min10 ;               //bandera de tiempo de funcion regar   
   */
 
+  //Serial.println("Inicia la tarea de regar");
+
   uint8_t contadorTimeoutRegar = 0;                     //bandera de ciclos
 
   SensorEvent evento;
@@ -119,12 +131,14 @@ void tareaRegar(void *pvParameters) {
   while (true) {
     switch (estadoRegar) {
       case 0:
-        if (analogRead(sensorHumedad) > estaSeco) {
+        if (analogRead(sensorHumedad) > estaSeco) { // Verifica si el suelo esta seco, si es asi activa la bomba de agua
+
           digitalWrite(bombaDeAgua, HIGH);
+          // Serial.println("Se activo la bomba de agua");
 
           // Preparar estructura para cargarlo en el Queue
-          // false esta seco
-          evento.tipo = 1;
+          // false es "esta seco"
+          evento.tipo = tipoSensorHumedad;
           evento.estado = false;
           getLocalTime(&evento.time);
           xQueueSend(colaEventos, &evento, 0);
@@ -132,36 +146,41 @@ void tareaRegar(void *pvParameters) {
           // Cambia de Estado
           estadoRegar = 1;
         }
-        else {
+        else { // Si el suelo no esta seco, espera 10 minutos para volver a verificar
+          // Serial.println("El suelo no esta seco");
           vTaskDelay(pdMS_TO_TICKS(min10));
         }
         break;
 
       case 1:
-        vTaskDelay(pdMS_TO_TICKS(seg10));
+        vTaskDelay(pdMS_TO_TICKS(seg10)); // Riega durante 10 segundos y luego verifica si el suelo esta humedo, si es asi apaga la bomba de agua y vuelve al estado 0, sino espera 10 segundos mas y vuelve a verificar hasta que se cumpla el timeout
 
-        if (analogRead(sensorHumedad) < estaHumedo) {
+        if (analogRead(sensorHumedad) < estaHumedo) { // Verifica si el suelo esta humedo, si es asi apaga la bomba de agua y vuelve al estado 0
+
           digitalWrite(bombaDeAgua, LOW);
+          // Serial.println("Se desactivo la bomba de agua");
 
           // Preparar estructura para cargarlo en el Queue
-          // true esta humedo
-          evento.tipo = 1;
+          // true es "esta humedo"
+          // Manda un evento por cada cambio de estado del sensor de humedad, ya sea que se active o se desactive la bomba de agua
+          //----------------------------------------------
+          evento.tipo = tipoSensorHumedad;
           evento.estado = true;
           getLocalTime(&evento.time);
           xQueueSend(colaEventos, &evento, 0);
+          //----------------------------------------------
 
           estadoRegar = 0;
           contadorTimeoutRegar++;                              //aumento de ciclo
         }
-        else if (contadorTimeoutRegar == ciclosTimeoutRegar) {     //si supera la cantidad ciclos pasa al siguiente estado  
-          estadoRegar = 2;                                  //siguiente estado 
+        else if (contadorTimeoutRegar == ciclosTimeoutRegar) {     //si supera la cantidad ciclos pasa al siguiente estado
+          estadoRegar = 2;                                  //siguiente estado
         }
 
         break;
 
       case 2:
         vTaskSuspend(NULL);                //se mantiene en esta tarea hasta que termine (NO HACE NADA)
-
         break;
     }
     break;
@@ -171,7 +190,7 @@ void tareaRegar(void *pvParameters) {
 
 void detectarLluvia(void *pvParameters) {
 
-  uint8_t contadorDeCiclosLluvia = 0;       //bandera de ciclos para cuando halla lluvia lluvia 
+  uint8_t contadorDeCiclosLluvia = 0;       //bandera de ciclos para cuando halla lluvia lluvia
 
   uint8_t estadoLluvia = 0;
 
@@ -191,6 +210,7 @@ void detectarLluvia(void *pvParameters) {
 
   while (1) {
     switch (estadoLluvia) {
+
       case 0:
         if (analogRead(sensorLluvia) < 500) {
           digitalWrite(motorDCAbrir, HIGH);
@@ -198,7 +218,7 @@ void detectarLluvia(void *pvParameters) {
 
           contadorDeCiclosLluvia++;
 
-          else if (ciclosTimeoutLluvia == 10) {
+          if (ciclosTimeoutLluvia == 10) {
             estadoLluvia = 4;
           }
         }
@@ -211,12 +231,11 @@ void detectarLluvia(void *pvParameters) {
           estadoLluvia = 2;
           contadorDeCiclosLluvia++;
 
-          else if (contadorDeCiclosLluvia == 10) {
+          if (contadorDeCiclosLluvia == 10) {
             estadoLluvia = 4;
           }
         }
 
-        }
         break;
 
       case 2:
@@ -226,7 +245,7 @@ void detectarLluvia(void *pvParameters) {
 
           contadorDeCiclosLluvia++;
 
-          else if (contadorDeCiclosLluvia == 10) {
+          if (contadorDeCiclosLluvia == 10) {
             estadoLluvia = 4;
           }
         }
@@ -240,7 +259,7 @@ void detectarLluvia(void *pvParameters) {
 
           contadorDeCiclosLluvia++;
 
-          else if (contadorDeCiclosLluvia == 10) {
+          if (contadorDeCiclosLluvia == 10) {
             estadoLluvia = 4;
           }
         }
