@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <ArduinoJson.h>
 
 #define ciclosTimeoutRegar  15
 #define ciclosTimeoutLluvia 10
@@ -320,5 +321,44 @@ void estadoWifiYNTP(void *pvParameters) {
 
     WiFi.disconnect();
     vTaskDelay(pdMS_TO_TICKS(300000));
+  }
+}
+
+void procesarQueueYCrearJSON(void *pvParameters){
+  SensorEvent evento; // objeto que recibira los datos del queue
+  bool llegoUnEvento = false; // variable de control para cuando llega un evento
+  while(1){ // repetir siempre
+    if(xQueueReceive(colaEventos, &evento, portMAX_DELAY) == pdTRUE){ // Si llega un elemento al Queue
+      llegoUnEvento = true;
+
+      JsonDocument doc; // Creo donde estara todo el arreglo de JSON, Crea un objeto de la clase JsonCocument 
+      JsonArray eventos = doc.to<JsonArray>(); // Adentro de doc habran 'eventos' que seran JSON independientes
+      
+      while(uxQueueMessagesWaiting(colaEventos) != 0 || llegoUnEvento){ // Mistras aun haya cola en el queue
+        JsonObject jsonEvento = eventos.add<JsonObject>(); // agrego a un 'evento' lineas de informacion que sera 'jsonEvento'
+
+        // Crear Variable con el estandar ISO 8601 o el formato timestamptz
+        //---------------------------------------------------
+        char horaDelEvento[25];
+        strftime(horaDelEvento, sizeof(horaDelEvento),"%Y-%m-%dT%H:%M:%S", &evento.time);
+        //---------------------------------------------------
+        // Crear datos del JSON 'jsonEvento'
+        //---------------------------------------------------
+        jsonEvento["tipo"] = evento.tipo;
+        jsonEvento["estado"] = evento.estado;
+        jsonEvento["time"] = horaDelEvento;
+        //---------------------------------------------------
+        if(llegoUnEvento){ // Ejecutar una vez y esperar 5 segundos a que hayan eventos
+          vTaskDelay(pdMS_TO_TICKS(5000));
+          llegoUnEvento = false;
+        }
+        xQueueReceive(colaEventos, &evento, 0); // actualizar el objeto 'evento'
+
+        // Agregar funcion de HTTPS
+      }
+      String json;
+      serializeJson(doc, json);
+      //enviar HTTPS
+    }
   }
 }
