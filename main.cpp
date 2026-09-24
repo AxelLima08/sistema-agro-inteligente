@@ -395,15 +395,15 @@ void estadoWifiYNTP(void *pvParameters) {
 
 void procesarQueueYCrearJSON(void *pvParameters){
   SensorEvent evento; // Objeto que recibira los datos del queue
-  bool llegoUnEvento = false; // Variable de control para cuando llega un evento
+  bool aunHayColaEnElQueue = false; // Variable de control para cuando llega un evento
   while(1){ // Repetir siempre
     if(xQueueReceive(colaEventos, &evento, portMAX_DELAY) == pdTRUE){ // Si llega un elemento al Queue
-      llegoUnEvento = true;
-
+      aunHayColaEnElQueue = true;
+      vTaskDelay(pdMS_TO_TICKS(5000));
 
       JsonDocument doc; // Creo donde estara todo el arreglo de JSON, Crea un objeto de la clase JsonCocument
       JsonArray eventos = doc.to<JsonArray>(); // Adentro de doc habran 'eventos' que seran JSON independientes
-      while(uxQueueMessagesWaiting(colaEventos) != 0 || llegoUnEvento){ // Mistras aun haya cola en el queue
+      do{ // Mistras aun haya cola en el queue
         JsonObject jsonEvento = eventos.add<JsonObject>(); // Agrego a un 'evento' lineas de informacion que sera 'jsonEvento'
 
         // Crear Variable con el estandar ISO 8601 o el formato timestamptz
@@ -417,15 +417,15 @@ void procesarQueueYCrearJSON(void *pvParameters){
         jsonEvento["estado"] = evento.estado;
         jsonEvento["time"] = horaDelEvento;
         //---------------------------------------------------
-        if(llegoUnEvento){ // Ejecutar una vez y esperar 5 segundos a que hayan eventos
-          vTaskDelay(pdMS_TO_TICKS(5000));
-          llegoUnEvento = false;
+        if(uxQueueMessagesWaiting(colaEventos) != 0){
+          xQueueReceive(colaEventos, &evento, 0); // Actualizar el objeto 'evento'
         }
-        xQueueReceive(colaEventos, &evento, 0); // Actualizar el objeto 'evento'
-
+        else{
+          aunHayColaEnElQueue = false; // Si no hay mas elementos en el queue, salgo del bucle
+        }
 
         // Agregar funcion de HTTPS
-      }
+      }while(aunHayColaEnElQueue); // Mientras aun haya elementos en el queue
       String json;
       serializeJson(doc, json);
        //Enviar HTTPS
